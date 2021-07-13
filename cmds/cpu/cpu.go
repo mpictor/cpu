@@ -109,8 +109,12 @@ func config(kf string) (*ossh.ClientConfig, error) {
 		}
 		pk, err := ossh.ParsePublicKey(hk)
 		if err != nil {
-			return nil, fmt.Errorf("host key %v: %v", string(hk), err)
+			pk, _, _, _, err = ossh.ParseAuthorizedKey(hk)
 		}
+		if err != nil {
+			return nil, fmt.Errorf("parse host key %v: %v", *hostKeyFile, err)
+		}
+
 		cb = ossh.FixedHostKey(pk)
 	}
 	config := &ossh.ClientConfig{
