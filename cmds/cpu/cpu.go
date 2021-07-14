@@ -21,15 +21,9 @@ import (
 	"time"
 	"unsafe"
 
-	// We use this ssh because it implements port redirection.
-	// It can not, however, unpack password-protected keys yet.
-
-	// TODO: get rid of krpty
 	"github.com/u-root/u-root/pkg/termios"
 	"github.com/u-root/u-root/pkg/ulog"
-
-	// We use this ssh because it can unpack password-protected private keys.
-	ossh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh" // This ssh can unpack password-protected private keys.
 )
 
 // a nonce is a [32]byte containing only printable characters, suitable for use as a string
@@ -76,17 +70,17 @@ func (n nonce) String() string {
 	return string(n[:])
 }
 
-func dial(n, a string, config *ossh.ClientConfig) (*ossh.Client, error) {
-	client, err := ossh.Dial(n, a, config)
+func dial(n, a string, config *ssh.ClientConfig) (*ssh.Client, error) {
+	client, err := ssh.Dial(n, a, config)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to dial: %v", err)
 	}
 	return client, nil
 }
 
-func config(kf string) (*ossh.ClientConfig, error) {
-	cb := ossh.InsecureIgnoreHostKey()
-	//var hostKey ssh.PublicKey
+func config(kf string) (*ssh.ClientConfig, error) {
+	cb := ssh.InsecureIgnoreHostKey()
+
 	// A public key may be used to authenticate against the remote
 	// server by using an unencrypted PEM-encoded private key file.
 	//
@@ -98,7 +92,7 @@ func config(kf string) (*ossh.ClientConfig, error) {
 	}
 
 	// Create the Signer for this private key.
-	signer, err := ossh.ParsePrivateKey(key)
+	signer, err := ssh.ParsePrivateKey(key)
 	if err != nil {
 		return nil, fmt.Errorf("ParsePrivateKey %v: %v", kf, err)
 	}
@@ -107,28 +101,28 @@ func config(kf string) (*ossh.ClientConfig, error) {
 		if err != nil {
 			return nil, fmt.Errorf("unable to read host key %v: %v", *hostKeyFile, err)
 		}
-		pk, err := ossh.ParsePublicKey(hk)
+		pk, err := ssh.ParsePublicKey(hk)
 		if err != nil {
-			pk, _, _, _, err = ossh.ParseAuthorizedKey(hk)
+			pk, _, _, _, err = ssh.ParseAuthorizedKey(hk)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("parse host key %v: %v", *hostKeyFile, err)
 		}
 
-		cb = ossh.FixedHostKey(pk)
+		cb = ssh.FixedHostKey(pk)
 	}
-	config := &ossh.ClientConfig{
+	config := &ssh.ClientConfig{
 		User: os.Getenv("USER"),
-		Auth: []ossh.AuthMethod{
+		Auth: []ssh.AuthMethod{
 			// Use the PublicKeys method for remote authentication.
-			ossh.PublicKeys(signer),
+			ssh.PublicKeys(signer),
 		},
 		HostKeyCallback: cb,
 	}
 	return config, nil
 }
 
-func cmd(client *ossh.Client, s string) ([]byte, error) {
+func cmd(client *ssh.Client, s string) ([]byte, error) {
 	session, err := client.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create session: %v", err)
@@ -203,7 +197,7 @@ func runClient(host, a string) error {
 	return nil
 }
 
-func env(s *ossh.Session, envs ...string) {
+func env(s *ssh.Session, envs ...string) {
 	for _, v := range append(os.Environ(), envs...) {
 		env := strings.SplitN(v, "=", 2)
 		if len(env) == 1 {
@@ -215,7 +209,7 @@ func env(s *ossh.Session, envs ...string) {
 	}
 }
 
-func stdin(s *ossh.Session, w io.WriteCloser, r io.Reader) {
+func stdin(s *ssh.Session, w io.WriteCloser, r io.Reader) {
 	var newLine, tilde bool
 	var t = []byte{'~'}
 	var b [1]byte
@@ -261,7 +255,7 @@ func stdin(s *ossh.Session, w io.WriteCloser, r io.Reader) {
 	}
 }
 
-func shell(client *ossh.Client, cmd string, envs ...string) error {
+func shell(client *ssh.Client, cmd string, envs ...string) error {
 	t, err := termios.New()
 	if err != nil {
 		return err
@@ -285,10 +279,10 @@ func shell(client *ossh.Client, cmd string, envs ...string) error {
 	defer session.Close()
 	env(session, envs...)
 	// Set up terminal modes
-	modes := ossh.TerminalModes{
-		ossh.ECHO:          0,     // disable echoing
-		ossh.TTY_OP_ISPEED: 14400, // input speed = 14.4kbaud
-		ossh.TTY_OP_OSPEED: 14400, // output speed = 14.4kbaud
+	modes := ssh.TerminalModes{
+		ssh.ECHO:          0,     // disable echoing
+		ssh.TTY_OP_ISPEED: 14400, // input speed = 14.4kbaud
+		ssh.TTY_OP_OSPEED: 14400, // output speed = 14.4kbaud
 	}
 	// Request pseudo terminal
 	if err := session.RequestPty("ansi", 40, 80, modes); err != nil {
@@ -374,7 +368,7 @@ func main() {
 	if err := runClient(host, a); err != nil {
 		e := 1
 		log.Printf("SSH error %s", err)
-		if x, ok := err.(*ossh.ExitError); ok {
+		if x, ok := err.(*ssh.ExitError); ok {
 			e = x.ExitStatus()
 		}
 		defer os.Exit(e)
